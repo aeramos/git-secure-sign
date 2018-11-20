@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+
+store() {
+    cd $1
+    treeHash=$(git write-tree)
+    branchRef=$(cat .git/HEAD)
+    branchRef=${branchRef:5} # i cant figure out how to do this in one line
+    branchHash=$(cat .git/$branchRef)
+    mkdir -p $2/.git/objects/${treeHash::2}
+    cp .git/objects/${treeHash::2}/${treeHash:2} $2/.git/objects/${treeHash::2} --remove-destination --update
+    mkdir -p $2/.git/objects/${branchHash::2}
+    cp .git/objects/${branchHash::2}/${branchHash:2} $2/.git/objects/${branchHash::2} --remove-destination --update
+    echo $treeHash > $2/.git/objects/treeHash
+    echo $branchHash > $2/.git/objects/parentHash
+    echo "Stored tree in $2/.git"
+}
+
+sign() {
+    cd $1
+    git init --quiet
+    treeHash=$(cat .git/objects/treeHash)
+    parentHash=$(cat .git/objects/parentHash)
+    $(git config --get core.editor) $1/.git/COMMIT_EDITMSG
+    commitHash=$(git commit-tree $treeHash -p $parentHash -F $1/.git/COMMIT_EDITMSG -S)
+    echo $commitHash > .git/objects/commitHash
+    echo "Signed commit in $1/.git"
+}
+
+commit() {
+    cd $1
+    commitHash=$(cat $2/.git/objects/commitHash)
+    mkdir -p .git/objects/${commitHash::2}
+    cp $2/.git/objects/${commitHash::2}/${commitHash:2} .git/objects/${commitHash::2} --remove-destination --update
+    branchRef=$(cat .git/HEAD)
+    branchRef=${branchRef:5}
+    echo $commitHash > .git/$branchRef
+    echo "Committed in $1"
+}
+
+while [[ $# -gt 0 ]]
+do
+    parameter="$1"
+    case $parameter in
+        --store)
+            store "$2" "$3" #source + destination
+            shift
+            shift
+            shift
+        ;;
+        --sign)
+            sign "$2" #source
+            shift
+            shift
+        ;;
+        --commit)
+            commit "$2" "$3" #original git repo + stored signed commit
+            shift
+            shift
+            shift
+        ;;
+        *)
+            echo "--store <source> <destination"
+            echo "--sign <stored location>"
+            echo "--commit <git repo> <stored location"
+            shift
+        ;;
+    esac
+done
